@@ -9,13 +9,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-# ---------------- LOAD MODELS ----------------
+#LOAD MODELS
 svc_model = pickle.load(open('clf.pkl', 'rb'))
 tfidf = pickle.load(open('tfidf.pkl', 'rb'))
 le = pickle.load(open('encoder.pkl', 'rb'))
 
 
-# ---------------- TEXT CLEANING ----------------
+# TEXT CLEANING
 def cleanResume(txt):
     cleanText = re.sub('http\S+\s', ' ', txt)
     cleanText = re.sub('RT|cc', ' ', cleanText)
@@ -27,7 +27,7 @@ def cleanResume(txt):
     return cleanText.strip()
 
 
-# ---------------- FILE EXTRACTION ----------------
+# FILE EXTRACTION
 def extract_text_from_pdf(file):
     pdf_reader = PyPDF2.PdfReader(file)
     text = ''
@@ -52,41 +52,87 @@ def extract_text_from_txt(file):
 
 def handle_file_upload(uploaded_file):
     ext = uploaded_file.name.split('.')[-1].lower()
+
     if ext == 'pdf':
         return extract_text_from_pdf(uploaded_file)
+
     elif ext == 'docx':
         return extract_text_from_docx(uploaded_file)
+
     elif ext == 'txt':
         return extract_text_from_txt(uploaded_file)
+
     else:
         raise ValueError("Unsupported file format")
 
 
-# ---------------- RESUME CLASSIFIER ----------------
+#CHARTS
+def ats_gauge_chart(score):
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        title={'text': "ATS Match Score"},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'steps': [
+                {'range': [0, 40], 'color': "#ff4b4b"},
+                {'range': [40, 70], 'color': "#ffa500"},
+                {'range': [70, 100], 'color': "#2ecc71"}
+            ],
+            'bar': {'color': "darkblue"}
+        }
+    ))
+
+    fig.update_layout(height=300)
+
+    return fig
+
+
+def category_chart(probs, labels):
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=labels,
+        y=probs,
+        text=[f"{p:.2f}%" for p in probs],
+        textposition="auto"
+    ))
+
+    fig.update_layout(
+        title="Category Prediction Confidence",
+        xaxis_title="Job Category",
+        yaxis_title="Probability %",
+        height=400
+    )
+
+    return fig
+
+
+# RESUME CLASSIFIER
 def pred(input_resume):
+
     cleaned_text = cleanResume(input_resume)
+
     vectorized_text = tfidf.transform([cleaned_text]).toarray()
 
-    # Predict category
     prediction = svc_model.predict(vectorized_text)
+
     category = le.inverse_transform(prediction)[0]
 
-    # model-based ATS
     score = None
+
     try:
         if hasattr(svc_model, "predict_proba"):
             probs = svc_model.predict_proba(vectorized_text)
             score = float(probs.max() * 100)
-        elif hasattr(svc_model, "decision_function"):
-            df = svc_model.decision_function(vectorized_text)
-            df = np.atleast_2d(df)
-            exps = np.exp(df - np.max(df, axis=1, keepdims=True))
-            probs = exps / exps.sum(axis=1, keepdims=True)
-            score = float(probs.max() * 100)
+
     except Exception:
         score = None
 
     score = round(score, 2) if score is not None else None
+
     probabilities = None
 
     if hasattr(svc_model, "predict_proba"):
@@ -95,22 +141,26 @@ def pred(input_resume):
     return category, score, probabilities
 
 
-#ATS_SCORE
+# ATS SCORE
 def calculate_ats_score(resume_text, jd_text):
+
     resume_clean = cleanResume(resume_text)
     jd_clean = cleanResume(jd_text)
 
     documents = [resume_clean, jd_clean]
 
     ats_vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
+
     vectors = ats_vectorizer.fit_transform(documents)
 
     similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
+
     return round(similarity * 100, 2)
 
 
-#STREAMLIT_APP
+#STREAMLIT APP
 def main():
+
     st.set_page_config(
         page_title="Resume ATS & Category Predictor",
         page_icon="📄",
@@ -118,66 +168,78 @@ def main():
     )
 
     st.title("Resume Category Prediction & ATS Scoring")
+
     st.markdown(
         "Upload a resume and paste a job description to get **job category** and **ATS match score**."
     )
 
-    # Job Description input
     jd_text = st.text_area(
         "Job Description",
         placeholder="Paste the job description here...",
         height=200
     )
 
-    # Resume upload
     uploaded_file = st.file_uploader(
         "Upload Resume (PDF / DOCX / TXT)",
         type=["pdf", "docx", "txt"]
     )
 
     if uploaded_file is not None:
+
         try:
+
             resume_text = handle_file_upload(uploaded_file)
+
             st.success("Resume text extracted successfully!")
 
             if st.checkbox("Show extracted resume text"):
+
                 st.text_area(
                     "Extracted Resume Text",
                     resume_text,
                     height=300
                 )
 
-            # Category prediction
             st.subheader("Predicted Job Category")
-            category, model_score, probabilities = pred(resume_text)
-            st.write(f"**{category}**")
-            # if model_score is not None:
-            #     st.metric("Model Confidence (heuristic ATS)", f"{model_score}%")
 
-            # Category confidence visualization
+            category, model_score, probabilities = pred(resume_text)
+
+            st.write(f"**{category}**")
+
             if probabilities is not None:
+
                 labels = le.classes_
+
                 chart = category_chart(probabilities, labels)
+
                 st.plotly_chart(chart, use_container_width=True)
 
-            # ATS Score
             st.subheader("ATS Match Score")
 
             if jd_text.strip():
+
                 ats_score = calculate_ats_score(resume_text, jd_text)
 
-                st.plotly_chart(ats_gauge_chart(ats_score), use_container_width=True)
+                st.plotly_chart(
+                    ats_gauge_chart(ats_score),
+                    use_container_width=True
+                )
 
                 if ats_score >= 75:
                     st.success("Excellent match! Resume is highly relevant.")
+
                 elif ats_score >= 50:
                     st.warning("Good match, but improvements are possible.")
+
                 else:
                     st.error("Low match. Resume needs optimization.")
+
             else:
-                st.info("Paste a job description to calculate ATS score. Model confidence is shown above.")
+
+                st.info("Paste a job description to calculate ATS score.")
 
         except Exception as e:
+
             st.error(f"Error processing the file: {str(e)}")
 
 
