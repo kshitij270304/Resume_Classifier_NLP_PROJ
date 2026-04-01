@@ -1,4 +1,3 @@
-from matplotlib import category
 import streamlit as st
 import pickle
 import docx
