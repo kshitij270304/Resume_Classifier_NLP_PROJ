@@ -10,48 +10,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
+# ---------------- LOAD MODELS ----------------
 svc_model = pickle.load(open('clf.pkl', 'rb'))
 tfidf = pickle.load(open('tfidf.pkl', 'rb'))
 le = pickle.load(open('encoder.pkl', 'rb'))
 
-def ats_gauge_chart(score):
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        title={'text': "ATS Match Score"},
-        gauge={
-            'axis': {'range': [0, 100]},
-            'bar': {'color': "darkblue"},
-            'steps': [
-                {'range': [0, 40], 'color': "#ff4b4b"},
-                {'range': [40, 70], 'color': "#ffa500"},
-                {'range': [70, 100], 'color': "#2ecc71"}
-            ],
-        }
-    ))
 
-    fig.update_layout(height=300)
-    return fig
-
-def category_chart(probs, labels):
-    fig = go.Figure()
-
-    fig.add_trace(go.Bar(
-        x=labels,
-        y=probs,
-        text=[f"{p:.2f}%" for p in probs],
-        textposition="auto"
-    ))
-
-    fig.update_layout(
-        title="Category Prediction Confidence",
-        xaxis_title="Job Category",
-        yaxis_title="Probability %",
-        height=400
-    )
-
-    return fig
-
+# ---------------- TEXT CLEANING ----------------
 def cleanResume(txt):
     cleanText = re.sub('http\S+\s', ' ', txt)
     cleanText = re.sub('RT|cc', ' ', cleanText)
@@ -62,6 +27,8 @@ def cleanResume(txt):
     cleanText = re.sub('\s+', ' ', cleanText)
     return cleanText.strip()
 
+
+# ---------------- FILE EXTRACTION ----------------
 def extract_text_from_pdf(file):
     pdf_reader = PyPDF2.PdfReader(file)
     text = ''
@@ -96,6 +63,7 @@ def handle_file_upload(uploaded_file):
         raise ValueError("Unsupported file format")
 
 
+# ---------------- RESUME CLASSIFIER ----------------
 def pred(input_resume):
     cleaned_text = cleanResume(input_resume)
     vectorized_text = tfidf.transform([cleaned_text]).toarray()
@@ -104,7 +72,7 @@ def pred(input_resume):
     prediction = svc_model.predict(vectorized_text)
     category = le.inverse_transform(prediction)[0]
 
-    # Determine confidence (model-based ATS heuristic)
+    # model-based ATS
     score = None
     try:
         if hasattr(svc_model, "predict_proba"):
@@ -128,7 +96,7 @@ def pred(input_resume):
     return category, score, probabilities
 
 
-# ---------------- ATS SCORE ----------------
+#ATS_SCORE
 def calculate_ats_score(resume_text, jd_text):
     resume_clean = cleanResume(resume_text)
     jd_clean = cleanResume(jd_text)
@@ -142,7 +110,7 @@ def calculate_ats_score(resume_text, jd_text):
     return round(similarity * 100, 2)
 
 
-# ---------------- STREAMLIT APP ----------------
+#STREAMLIT_APP
 def main():
     st.set_page_config(
         page_title="Resume ATS & Category Predictor",
