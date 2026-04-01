@@ -1,20 +1,57 @@
+from matplotlib import category
 import streamlit as st
 import pickle
 import docx
 import PyPDF2
 import re
 import numpy as np
+import plotly.graph_objects as go
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
-# ---------------- LOAD MODELS ----------------
 svc_model = pickle.load(open('clf.pkl', 'rb'))
 tfidf = pickle.load(open('tfidf.pkl', 'rb'))
 le = pickle.load(open('encoder.pkl', 'rb'))
 
+def ats_gauge_chart(score):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        title={'text': "ATS Match Score"},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [0, 40], 'color': "#ff4b4b"},
+                {'range': [40, 70], 'color': "#ffa500"},
+                {'range': [70, 100], 'color': "#2ecc71"}
+            ],
+        }
+    ))
 
-# ---------------- TEXT CLEANING ----------------
+    fig.update_layout(height=300)
+    return fig
+
+def category_chart(probs, labels):
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=labels,
+        y=probs,
+        text=[f"{p:.2f}%" for p in probs],
+        textposition="auto"
+    ))
+
+    fig.update_layout(
+        title="Category Prediction Confidence",
+        xaxis_title="Job Category",
+        yaxis_title="Probability %",
+        height=400
+    )
+
+    return fig
+
 def cleanResume(txt):
     cleanText = re.sub('http\S+\s', ' ', txt)
     cleanText = re.sub('RT|cc', ' ', cleanText)
@@ -25,8 +62,6 @@ def cleanResume(txt):
     cleanText = re.sub('\s+', ' ', cleanText)
     return cleanText.strip()
 
-
-# ---------------- FILE EXTRACTION ----------------
 def extract_text_from_pdf(file):
     pdf_reader = PyPDF2.PdfReader(file)
     text = ''
@@ -61,7 +96,6 @@ def handle_file_upload(uploaded_file):
         raise ValueError("Unsupported file format")
 
 
-# ---------------- RESUME CLASSIFIER ----------------
 def pred(input_resume):
     cleaned_text = cleanResume(input_resume)
     vectorized_text = tfidf.transform([cleaned_text]).toarray()
@@ -86,7 +120,12 @@ def pred(input_resume):
         score = None
 
     score = round(score, 2) if score is not None else None
-    return category, score
+    probabilities = None
+
+    if hasattr(svc_model, "predict_proba"):
+        probabilities = svc_model.predict_proba(vectorized_text)[0] * 100
+
+    return category, score, probabilities
 
 
 # ---------------- ATS SCORE ----------------
@@ -143,10 +182,16 @@ def main():
 
             # Category prediction
             st.subheader("Predicted Job Category")
-            category, model_score = pred(resume_text)
+            category, model_score, probabilities = pred(resume_text)
             st.write(f"**{category}**")
             # if model_score is not None:
             #     st.metric("Model Confidence (heuristic ATS)", f"{model_score}%")
+
+            # Category confidence visualization
+            if probabilities is not None:
+                labels = le.classes_
+                chart = category_chart(probabilities, labels)
+                st.plotly_chart(chart, use_container_width=True)
 
             # ATS Score
             st.subheader("ATS Match Score")
@@ -154,7 +199,7 @@ def main():
             if jd_text.strip():
                 ats_score = calculate_ats_score(resume_text, jd_text)
 
-                st.metric("Resume–JD Match", f"{ats_score}%")
+                st.plotly_chart(ats_gauge_chart(ats_score), use_container_width=True)
 
                 if ats_score >= 75:
                     st.success("Excellent match! Resume is highly relevant.")
