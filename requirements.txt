@@ -4,3 +4,6 @@ numpy
 PyPDF2
 python-docx
 plotly
+sentence-transformers==2.7.0
+torch==2.2.2
+transformers==4.41.2
